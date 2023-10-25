@@ -1,0 +1,201 @@
+---
+output:
+  html_document:
+    df_print: paged
+    code_download: TRUE
+    toc: true
+    toc_depth: 1
+editor_options:
+  chunk_output_type: console
+---
+
+# Parallel Processing in R
+
+## Introductory Concepts
+
+### Serial vs Parallel processing
+
+Parallel processing is the **simultaneous** execution of different pieces of a larger computation across multiple processors or cores. The basic idea is that if you can execute a computation in $X$ seconds on a single processor, then you should be able to execute it in $X/n$ seconds on $n$ processors.
+
+Consider that we have a series of functions to run, `f1`, `f2`, etc.
+
+**Serial** processing means that `f1` runs first, and until `f1` completes, nothing else can run. Once `f1` completes, `f2` begins, and the process repeats.
+
+**Parallel** processing (in the extreme) means that all the `f#` processes start simultaneously and run to completion on their own.
+
+**Hidden parallelism**: You might have already used parallel processing without realizing it! Several R packages such as `caret` , `bigrf` and `GAMBoost` explicitly use parallel computing or [multithreading](https://www.wikiwand.com/en/Multithreading_(computer_architecture)) to speed up their execution and make it memory-efficient.
+
+### What is a core?
+
+Before we get started, let's look at some hardware terms:
+
+-   **Core:** The unit of computation.
+
+-   **Processor (or Socket)**: The silicon chip. There cab be multiple cores on one processor.
+
+-   **Node**: A single motherboard, with multiple processors. Usually one computer is referred to as a node.
+
+```{=html}
+<!-- -->
+```
+-   **Cluster**: A group interconnected nodes (or computers).
+
+### When should you use parallel processing?
+
+One turns to parallel processing to solve one of three problems:
+
+-   My program is **too slow**. Perhaps using more cores will make things run faster.
+
+-   My problem is **too big**. Perhaps splitting the problem into multiple cores will give it access to enough memory to run effectively.
+
+-   There are **too many** computations. Perhaps running them in parallel will save on time and memory requirements for my task.
+
+### Concurrency : Multiple Independent Computations
+
+For more cores to help, there has to be something for them to do. Find largely **independent** computations to occupy them. A good use-case would be running several sets of simulations with different starting seeds, or running bootstrap calculations for a test-statistic.
+
+### Packages in R
+
+-   `parallel` is a core R package which means it comes with your R installation. It merges two other packages that were used in the past (before 2011): `multicore` and `snow`.
+
+-   `foreach` and `doParallel`
+
+    -   `foreach` helps with executing loops in parallel, among other things.
+
+    -   `doParallel` is a "parallel backend" for the *foreach* package. The user must register a parallel backend to use, otherwise *foreach* will execute tasks sequentially. Therefore, the *doParallel* package provides the mechanism needed to execute *foreach* loops in parallel.
+
+## Using the `parallel` package
+
+First, let's detect the number of cores in your machine!
+
+```{r}
+library(parallel)
+
+numCores <- detectCores() # get the number of cores available
+numCores
+```
+
+### `mclapply()`
+
+The simplest application of the `parallel` package is via the `mclapply()` function, which conceptually splits what might be a call to `lapply()` across multiple cores. The first two arguments to `mclapply()` are exactly the same as they are for `lapply()`. However, `mclapply()` has further arguments (that must be named), the most important of which is the `mc.cores` argument which you can use to specify the number of processors/cores you want to split the computation across.
+
+```{r}
+?lapply
+?mclapply
+```
+
+NOTE: The `mc*` functions are generally not available to users of the Windows operating system because of how `parallel`manages the logistics of partitioning tasks across cores.
+
+### Example: Bootstrapping a test-statistic 
+
+Suppose I want to calculate some aggregate measures for my data. We will be using the `iris` dataset that is pre-loaded in R.
+
+```{r}
+View(iris)
+names(iris)
+
+# histogram of petal widths
+hist(iris$Petal.Width)
+```
+
+We see that the histogram is skewed, so we decide to calculate the median.
+
+```{r}
+data_median <- median(iris$Petal.Width) # direct estimate from raw data
+data_median
+```
+
+However, we would like confidence intervals around the median estimate. Therefore, we decide to bootstrap the estimate by resampling (with replacement) from the data several times.
+
+```{r}
+# create your function to bootstrap
+my_boot_function <- function(x){
+  x_sample <- sample(x, replace=TRUE)
+  median(x_sample)
+}
+```
+
+Here's how we would do it the non-parallel way with `lapply`:
+
+```{r}
+# create replicates of your data vector to feed to lapply
+X = replicate(n=5000, list(iris$Petal.Width))
+
+# call lapply
+sample_medians <- lapply(X, my_boot_function)
+sample_medians <- unlist(sample_medians) # Collapse list into vector
+```
+
+A 95% confidence interval would then take the 2.5th and 97.5th percentiles of this distribution:
+
+```{r}
+quantile(sample_medians, c(0.025, 0.975))
+```
+
+Now let's do this the parallel-way by wrapping it inside `mclapply`:
+
+```{r}
+sample_medians <- mclapply(X, my_boot_function, 
+                           mc.cores = detectCores()) 
+
+sample_medians <- unlist(sample_medians)  # Collapse list into vector
+quantile(sample_medians, c(0.025, 0.975)) # get 95% CI
+```
+
+Let's see how much time each process takes (coded as "elapsed")
+
+```{r}
+X = replicate(n=5000, list(iris$Petal.Width))
+
+cat("The estimated time using lapply() function:")
+system.time(lapply(X, my_boot_function))
+
+cat("The estimated time using mclapply() function:")
+system.time(mclapply(X, my_boot_function, mc.cores = detectCores()))
+```
+
+### EXERCISE 1
+
+Change the number of replicate runs to 50,000 and see the difference in time elapsed
+
+```{r}
+X <- 
+
+t_reg <- system.time(lapply(X, my_boot_function))[3] # select elapsed time only
+t_par <- system.time(mclapply(X, my_boot_function, mc.cores = detectCores()))[3]
+
+t_reg / t_par # calculate fold-efficiency
+```
+
+### EXERCISE 2
+
+Change the number of replicate runs to 100 and calculate the fold-efficiency. What do you notice?
+
+```{r}
+
+```
+
+### EXERCISE 3
+
+Write code to calculate the 95% confidence intervals for the mean of `Sepal.Width` in the `iris` data set. Estimate the CI by bootstrapping 5000 times, and using multiple cores in parallel.
+
+```{r}
+# create your list to feed to mclapply
+X = replicate(n= , list( ))
+
+# create your bootstrap function for sample mean
+my_boot_mean <- function(){
+  
+}
+
+# call to mclapply
+
+
+# calculate the quantiles for 95% CI
+
+
+```
+
+[Concept question for bootstrapping:]{.underline} What would happen if you directly used the `mean` function inside `mclapply` instead of creating the `my_boot_mean` function?
+
+## Using `foreach` and `doParallel`
