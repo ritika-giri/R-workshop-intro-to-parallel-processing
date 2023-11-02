@@ -35,10 +35,7 @@ Before we get started, let's look at some hardware terms:
 
 -   **Node**: A single motherboard, with multiple processors. Usually one computer is referred to as a node.
 
-```{=html}
-<!-- -->
-```
--   **Cluster**: A group interconnected nodes (or computers).
+-   **Cluster**: A group of interconnected nodes (or computers).
 
 ### When should you use parallel processing?
 
@@ -77,16 +74,35 @@ numCores
 
 ### `mclapply()`
 
-The simplest application of the `parallel` package is via the `mclapply()` function, which conceptually splits what might be a call to `lapply()` across multiple cores. The first two arguments to `mclapply()` are exactly the same as they are for `lapply()`. However, `mclapply()` has further arguments (that must be named), the most important of which is the `mc.cores` argument which you can use to specify the number of processors/cores you want to split the computation across.
+The simplest application of the `parallel` package is via the `mclapply()` function, which conceptually splits what might be a call to `lapply()` across multiple cores.
+
+First, let's recap the `lapply()` function:
 
 ```{r}
 ?lapply
-?mclapply
 ```
+
+`lapply` returns a list of the same length as `X`, each element of which is the result of applying `FUN` to the corresponding element of `X` . For example:
+
+```{r}
+my_func <- function(x){
+  x + 10 # add 10 to every number
+}
+
+lapply(1:10, my_func)
+```
+
+What is the type of object that's being returned?
+
+```{r}
+unlist(lapply(1:10, my_func))
+```
+
+The first two arguments to `mclapply()` are exactly the same as they are for `lapply()`. However, `mclapply()` has further arguments (that must be named), the most important of which is the `mc.cores` argument which you can use to specify the number of processors/cores you want to split the computation across.
 
 NOTE: The `mc*` functions are generally not available to users of the Windows operating system because of how `parallel`manages the logistics of partitioning tasks across cores.
 
-### Example: Bootstrapping a test-statistic 
+### Example: Bootstrapping a test-statistic
 
 Suppose I want to calculate some aggregate measures for my data. We will be using the `iris` dataset that is pre-loaded in R.
 
@@ -173,6 +189,7 @@ Change the number of replicate runs to 100 and calculate the fold-efficiency. Wh
 
 ```{r}
 
+
 ```
 
 ### EXERCISE 3
@@ -191,6 +208,9 @@ my_boot_mean <- function(){
 # call to mclapply
 
 
+# unlist the resulting list into a vector
+
+
 # calculate the quantiles for 95% CI
 
 
@@ -199,3 +219,154 @@ my_boot_mean <- function(){
 [Concept question for bootstrapping:]{.underline} What would happen if you directly used the `mean` function inside `mclapply` instead of creating the `my_boot_mean` function?
 
 ## Using `foreach` and `doParallel`
+
+The normal `for` loop in R looks like this:
+
+```{r}
+for (i in 1:3) {
+  print(sqrt(i))
+}
+```
+
+The `foreach` method is similar, but uses the sequential `%do%` operator to indicate an expression to run. Note the difference in the returned data structure.
+
+```{r}
+library(foreach)
+
+foreach(i=1:3) %do% {
+  sqrt(i)
+}
+```
+
+In addition, `foreach` supports a parallelizable operator `%dopar%` from the `doParallel` package. `⁠%do%⁠` evaluates the expression sequentially, while `⁠%dopar%⁠` evaluates it in parallel. The results of evaluating `ex` are returned as a list by default, but this can be modified by means of the `.combine` argument.
+
+Let's see an example using `%dopar%`.
+
+First load the required libraries.
+
+```{r}
+library(foreach)
+library(doParallel)
+```
+
+Next, register the parallel backend with the `foreach` package.
+
+```{r}
+registerDoParallel(detectCores()) # you can set a different number if you don't want to use all the cores available
+```
+
+Now run your loop in parallel:
+
+```{r}
+foreach(i=1:3) %dopar% {
+  sqrt(i)
+}
+```
+
+To simplify output, `foreach` has the `.combine` parameter that can simplify return values
+
+```{r}
+# Return a vector
+foreach (i=1:3, .combine=c) %dopar% {
+  sqrt(i)
+}
+
+# Return a data frame
+foreach (i=1:3, .combine=rbind) %dopar% {
+  sqrt(i)
+}
+```
+
+### Example: Bootstrapping a test-statistic
+
+Let's use the iris data set to run a bootstrap analysis.
+
+This time, we want to get the slope and intercept for a logistic regression model which predicts the species as either "virginica" or "versicolor" based on the input parameter `Sepal.Length`.
+
+```{r}
+# remove setosa rows so only virginica and versicolor data remains
+new_iris <- iris[iris$Species!="setosa",] 
+
+# create a logistic regression model with Sepal.Length as input and species as output
+result <- glm(new_iris$Species ~ new_iris$Sepal.Length, 
+              family = binomial(logit))
+
+result
+
+# get the coefficients from the result object
+coefficients(result)
+```
+
+Let's see how this would look if we boot-strapped this analysis to get several values for the coefficients of the logistic regression model.
+
+```{r}
+new_iris <- iris[iris$Species!="setosa",] 
+
+my_reg_boot_func <- function(df){
+  df_sample <- dplyr::sample_n(df, 100, replace = TRUE) # sample 100 rows with replacement
+  result <- glm(df_sample$Species ~ df_sample$Sepal.Length, family = binomial(logit))
+  coefficients(result)
+}
+```
+
+Now run a for loop to get several resampled values:
+
+```{r}
+trials <- 1000
+
+# r <- foreach(i=1:trials, .combine = rbind) %do% {
+#   my_reg_boot_func(new_iris)
+# }
+```
+
+Let's wrap the for loop inside the timer function:
+
+```{r}
+system.time(
+  r1 <- foreach(i=1:trials, .combine = rbind) %do% {
+  my_reg_boot_func(new_iris)
+}
+)
+```
+
+What happens when we parallelize this process?
+
+```{r}
+# step 1 - register your cluster
+registerDoParallel(detectCores())
+
+# step 2 - run your parallel code
+system.time(
+  r2 <- foreach(i=1:trials, .combine = rbind) %dopar% {
+  my_reg_boot_func(new_iris)
+}
+)
+
+# step 3 - close the cluster
+stopImplicitCluster()
+```
+
+### EXERCISE 4
+
+Convert the code below to run as a parallel process using `foreach`
+
+```{r}
+# sequential processing code
+for (i in 1:100) {
+  sqrt(i)
+}
+
+# your code using foreach below
+
+
+
+```
+
+### EXERCISE 5
+
+What would you change in your answer above to return a vector of values instead of a list?
+
+```{r}
+
+
+```
