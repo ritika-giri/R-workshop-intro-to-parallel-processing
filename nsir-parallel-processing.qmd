@@ -15,7 +15,7 @@ editor_options:
 
 ### Serial vs Parallel processing
 
-Parallel processing is the **simultaneous** execution of different pieces of a larger computation across multiple processors or cores. The basic idea is that if you can execute a computation in $X$ seconds on a single processor, then you should be able to execute it in $X/n$ seconds on $n$ processors.
+Parallel processing is the **simultaneous** execution of different pieces of a larger computation across multiple processors or cores. In theory, the idea is that if you can execute a computation in $X$ seconds on a single processor, then you should be able to execute it in $X/n$ seconds on $n$ processors. In practice, one must also consider overhead time for partitioning tasks between cores.
 
 Consider that we have a series of functions to run, `f1`, `f2`, etc.
 
@@ -31,7 +31,7 @@ Before we get started, let's look at some hardware terms:
 
 -   **Core:** The unit of computation.
 
--   **Processor (or Socket)**: The silicon chip. There cab be multiple cores on one processor.
+-   **Processor (or Socket)**: The silicon chip. There can be multiple cores on one processor.
 
 -   **Node**: A single motherboard, with multiple processors. Usually one computer is referred to as a node.
 
@@ -137,8 +137,7 @@ Here's how we would do it the non-parallel way with `lapply`:
 # create replicates of your data vector to feed to lapply
 X = replicate(n=5000, list(iris$Petal.Width))
 
-# call lapply
-sample_medians <- lapply(X, my_boot_function)
+sample_medians <- lapply(X, my_boot_function) # call lapply
 sample_medians <- unlist(sample_medians) # Collapse list into vector
 ```
 
@@ -158,7 +157,7 @@ sample_medians <- unlist(sample_medians)  # Collapse list into vector
 quantile(sample_medians, c(0.025, 0.975)) # get 95% CI
 ```
 
-Let's see how much time each process takes (coded as "elapsed")
+Let's see how much time each process takes using `system.time`:
 
 ```{r}
 X = replicate(n=5000, list(iris$Petal.Width))
@@ -172,9 +171,10 @@ system.time(mclapply(X, my_boot_function, mc.cores = detectCores()))
 
 ### EXERCISE 1
 
-Change the number of replicate runs to 50,000 and see the difference in time elapsed
+Change the number of replicate runs to 50,000 and see the difference in time elapsed.
 
 ```{r}
+# create your replicate list
 X <- 
 
 t_reg <- system.time(lapply(X, my_boot_function))[3] # select elapsed time only
@@ -197,7 +197,7 @@ Change the number of replicate runs to 100 and calculate the fold-efficiency. Wh
 Write code to calculate the 95% confidence intervals for the mean of `Sepal.Width` in the `iris` data set. Estimate the CI by bootstrapping 5000 times, and using multiple cores in parallel.
 
 ```{r}
-# create your list to feed to mclapply
+# create your replicate list to feed to mclapply
 X = replicate(n= , list( ))
 
 # create your bootstrap function for sample mean
@@ -205,7 +205,7 @@ my_boot_mean <- function(){
   
 }
 
-# call to mclapply
+# call mclapply
 
 
 # unlist the resulting list into a vector
@@ -249,13 +249,25 @@ library(foreach)
 library(doParallel)
 ```
 
-Next, register the parallel backend with the `foreach` package.
+**IMPORTANT:** In order to run parallel processes, we will first need to register the parallel backend with the `foreach` package. If we do not do this, processes will run sequentially even if you use the `%dopar%` operator!!
 
 ```{r}
 registerDoParallel(detectCores()) # you can set a different number if you don't want to use all the cores available
 ```
 
-Now run your loop in parallel:
+Sometimes, you might see the `makeCluster` command being used. The `registerDoParallel` function creates a cluster by automatically calling the `makeCluster` function.
+
+To find out how many workers `foreach` is going to use, you can use the `getDoParWorkers` function.This is a useful sanity check that you're actually running in parallel.
+
+```{r}
+getDoParWorkers()
+
+# other useful functions
+getDoParName()
+getDoParVersion()
+```
+
+Now run your loop in parallel using the `%dopar%` operator:
 
 ```{r}
 foreach(i=1:3) %dopar% {
@@ -263,7 +275,7 @@ foreach(i=1:3) %dopar% {
 }
 ```
 
-To simplify output, `foreach` has the `.combine` parameter that can simplify return values
+To simplify output, `foreach` has the `.combine` parameter that can simplify return values.
 
 ```{r}
 # Return a vector
@@ -279,7 +291,7 @@ foreach (i=1:3, .combine=rbind) %dopar% {
 
 ### Example: Bootstrapping a test-statistic
 
-Let's use the iris data set to run a bootstrap analysis.
+Let's use the `iris` data set to run a bootstrap analysis.
 
 This time, we want to get the slope and intercept for a logistic regression model which predicts the species as either "virginica" or "versicolor" based on the input parameter `Sepal.Length`.
 
@@ -300,8 +312,6 @@ coefficients(result)
 Let's see how this would look if we boot-strapped this analysis to get several values for the coefficients of the logistic regression model.
 
 ```{r}
-new_iris <- iris[iris$Species!="setosa",] 
-
 my_reg_boot_func <- function(df){
   df_sample <- dplyr::sample_n(df, 100, replace = TRUE) # sample 100 rows with replacement
   result <- glm(df_sample$Species ~ df_sample$Sepal.Length, family = binomial(logit))
@@ -346,6 +356,8 @@ system.time(
 stopImplicitCluster()
 ```
 
+NOTE: If you created a cluster object with `makeCluster` the you can use `stopCluster(cluster_name)` to close the corresponding cluster.
+
 ### EXERCISE 4
 
 Convert the code below to run as a parallel process using `foreach`
@@ -370,3 +382,9 @@ What would you change in your answer above to return a vector of values instead 
 
 
 ```
+
+**NOTE**: This is not a practical use of doParallel. `sqrt` executes far too quickly to be worth executing in parallel, even with a large number of iterations. With small tasks, the overhead of scheduling the task and returning the result can be greater than the time to execute the task itself, resulting in poor performance.
+
+## Using the `BiocParallel` package
+
+`BiocParallel` provides modified versions and novel implementation of functions for parallel evaluation, tailored to use with Bioconductor objects. While we will not cover it in this workshop, you can learn more about it [here](https://bioconductor.org/packages/devel/bioc/vignettes/BiocParallel/inst/doc/Introduction_To_BiocParallel.html).
