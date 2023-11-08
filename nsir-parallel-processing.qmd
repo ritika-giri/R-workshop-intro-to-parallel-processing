@@ -29,13 +29,22 @@ Consider that we have a series of functions to run, `f1`, `f2`, etc.
 
 Before we get started, let's look at some hardware terms:
 
--   **Core:** The unit of computation.
+-   **Thread**: The smallest sequence of programmed instructions that can be managed independently.
+
+```{=html}
+<!-- -->
+```
+-   **Core**: A physical unit that handles computation.
 
 -   **Processor (or Socket)**: The silicon chip. There can be multiple cores on one processor.
 
 -   **Node**: A single motherboard, with multiple processors. Usually one computer is referred to as a node.
 
 -   **Cluster**: A group of interconnected nodes (or computers).
+
+    As an example, [Quest](https://www.it.northwestern.edu/departments/it-services-support/research/computing/quest/) is a cluster of 1009 compute nodes with a total of 44,800 cores.
+
+    ![](Hardware.png){width="324"}
 
 ### When should you use parallel processing?
 
@@ -61,6 +70,10 @@ For more cores to help, there has to be something for them to do. Find largely *
 
     -   `doParallel` is a "parallel backend" for the *foreach* package. The user must register a parallel backend to use, otherwise *foreach* will execute tasks sequentially. Therefore, the *doParallel* package provides the mechanism needed to execute *foreach* loops in parallel.
 
+```{r}
+install.packages(c("foreach", "doParallel"))
+```
+
 ## Using the `parallel` package
 
 First, let's detect the number of cores in your machine!
@@ -70,6 +83,14 @@ library(parallel)
 
 numCores <- detectCores() # get the number of cores available
 numCores
+```
+
+```{r}
+print(detectCores())
+
+# NOTE: Windows users may experience problems with using `mc*` family functions. Therefore, although your Windows machine may contain more than 1 core, we will set the number of cores to be 1 if you are working in Windows.
+
+numCores <- if (Sys.info()["sysname"] == "Windows") 1 else detectCores()
 ```
 
 ### `mclapply()`
@@ -104,9 +125,16 @@ NOTE: The `mc*` functions are generally not available to users of the Windows op
 
 ### Example: Bootstrapping a test-statistic
 
-Suppose I want to calculate some aggregate measures for my data. We will be using the `iris` dataset that is pre-loaded in R.
+**Task**: I want to calculate some aggregate measures for my data such as the mean or the variance. I also want the 95% confidence intervals for these estimates to be more scientific.
+
+**Problem**: However, confidence intervals cannot be analytically or mathematically calculated with a formula for all problems. In such cases, we simulate the data by "resampling" from the data at hand hundreds of thousands if not millions of times! We calculate the test-statistic for each of these simulated samples, and then find the 2.5% and 97.5% percentile values to estimate the 95% CI. This can be very time-consuming!
+
+**Solution**: Parallel processing to the rescue! Each resample is independent of the others, therefore this problem can be solved much more efficiently in parallel.
+
+**Demonstration:** We will be using the `iris` dataset that is pre-loaded in R. We will calculate the median of the column `Petal.Width` and use boot-strapping to generate 95% CIs for the estimated median.
 
 ```{r}
+# Let's look at the dataset
 View(iris)
 names(iris)
 
@@ -114,7 +142,7 @@ names(iris)
 hist(iris$Petal.Width)
 ```
 
-We see that the histogram is skewed, so we decide to calculate the median.
+We see that the histogram is skewed, so we decide to calculate the median (instead of the mean).
 
 ```{r}
 data_median <- median(iris$Petal.Width) # direct estimate from raw data
@@ -166,8 +194,10 @@ cat("The estimated time using lapply() function:")
 system.time(lapply(X, my_boot_function))
 
 cat("The estimated time using mclapply() function:")
-system.time(mclapply(X, my_boot_function, mc.cores = detectCores()))
+system.time(mclapply(X, my_boot_function, mc.cores = numCores))
 ```
+
+**NOTE:** Users running the code chunk above in Windows may not see a performance improvement since `numCores` is set to 1- but don't worry, you will experience the power of parallelism with the `foreach` package!
 
 ### EXERCISE 1
 
@@ -178,7 +208,7 @@ Change the number of replicate runs to 50,000 and see the difference in time ela
 X <- 
 
 t_reg <- system.time(lapply(X, my_boot_function))[3] # select elapsed time only
-t_par <- system.time(mclapply(X, my_boot_function, mc.cores = detectCores()))[3]
+t_par <- system.time(mclapply(X, my_boot_function, mc.cores = numCores))[3]
 
 t_reg / t_par # calculate fold-efficiency
 ```
