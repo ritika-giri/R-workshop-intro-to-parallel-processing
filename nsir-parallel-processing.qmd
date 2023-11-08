@@ -31,9 +31,6 @@ Before we get started, let's look at some hardware terms:
 
 -   **Thread**: The smallest sequence of programmed instructions that can be managed independently.
 
-```{=html}
-<!-- -->
-```
 -   **Core**: A physical unit that handles computation.
 
 -   **Processor (or Socket)**: The silicon chip. There can be multiple cores on one processor.
